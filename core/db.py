@@ -1,15 +1,17 @@
 import os
 from contextlib import contextmanager
-import psycopg2
 from psycopg2.extras import RealDictCursor
+import psycopg2
 from core.utils import now_utc
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
 
 def get_conn():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is not set")
     return psycopg2.connect(DATABASE_URL)
+
 
 @contextmanager
 def db_cursor():
@@ -19,8 +21,8 @@ def db_cursor():
         yield conn, cur
         conn.commit()
     finally:
-        cur.close()
         conn.close()
+
 
 def init_db():
     with db_cursor() as (conn, cur):
@@ -33,6 +35,7 @@ def init_db():
             updated_at TEXT NOT NULL
         )
         """)
+
         cur.execute("""
         CREATE TABLE IF NOT EXISTS assets (
             asset_id SERIAL PRIMARY KEY,
@@ -50,6 +53,7 @@ def init_db():
             UNIQUE(country_code, asset_name)
         )
         """)
+
         cur.execute("""
         CREATE TABLE IF NOT EXISTS entities (
             entity_id SERIAL PRIMARY KEY,
@@ -63,6 +67,7 @@ def init_db():
             UNIQUE(country_code, entity_name, entity_type)
         )
         """)
+
         cur.execute("""
         CREATE TABLE IF NOT EXISTS asset_entity_links (
             link_id SERIAL PRIMARY KEY,
@@ -73,9 +78,12 @@ def init_db():
             source_quote TEXT,
             discovered_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            UNIQUE(asset_id, entity_id, role)
+            UNIQUE(asset_id, entity_id, role),
+            FOREIGN KEY(asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE,
+            FOREIGN KEY(entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE
         )
         """)
+
         cur.execute("""
         CREATE TABLE IF NOT EXISTS sources (
             source_id SERIAL PRIMARY KEY,
@@ -88,9 +96,12 @@ def init_db():
             active INTEGER DEFAULT 1,
             last_checked_at TEXT,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(asset_id) REFERENCES assets(asset_id) ON DELETE SET NULL,
+            FOREIGN KEY(entity_id) REFERENCES entities(entity_id) ON DELETE SET NULL
         )
         """)
+
         cur.execute("""
         CREATE TABLE IF NOT EXISTS crawl_jobs (
             job_id SERIAL PRIMARY KEY,
@@ -108,6 +119,7 @@ def init_db():
             updated_at TEXT NOT NULL
         )
         """)
+
         cur.execute("""
         CREATE TABLE IF NOT EXISTS crawl_tasks (
             task_id SERIAL PRIMARY KEY,
@@ -121,9 +133,11 @@ def init_db():
             started_at TEXT,
             finished_at TEXT,
             updated_at TEXT NOT NULL,
-            notes TEXT
+            notes TEXT,
+            FOREIGN KEY(job_id) REFERENCES crawl_jobs(job_id) ON DELETE CASCADE
         )
         """)
+
         cur.execute("""
         CREATE TABLE IF NOT EXISTS worker_status (
             worker_id TEXT PRIMARY KEY,
@@ -134,6 +148,7 @@ def init_db():
             updated_at TEXT NOT NULL
         )
         """)
+
         cur.execute("""
         CREATE TABLE IF NOT EXISTS crawler_errors (
             error_id SERIAL PRIMARY KEY,
@@ -143,9 +158,11 @@ def init_db():
             url TEXT,
             stage TEXT,
             error_text TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(task_id) REFERENCES crawl_tasks(task_id) ON DELETE SET NULL
         )
         """)
+
         cur.execute("""
         CREATE TABLE IF NOT EXISTS crawler_runs (
             run_id SERIAL PRIMARY KEY,
@@ -160,30 +177,88 @@ def init_db():
             links_added INTEGER DEFAULT 0,
             sources_added INTEGER DEFAULT 0,
             errors_count INTEGER DEFAULT 0,
-            notes TEXT
+            notes TEXT,
+            FOREIGN KEY(job_id) REFERENCES crawl_jobs(job_id) ON DELETE SET NULL
         )
         """)
-        from configs.countries import COUNTRIES
-        for code, name in COUNTRIES:
-            cur.execute("""
-                INSERT INTO countries (country_code, country_name, enabled, created_at, updated_at)
-                VALUES (%s, %s, 1, %s, %s)
-                ON CONFLICT (country_code) DO UPDATE
-                SET country_name = EXCLUDED.country_name,
-                    updated_at = EXCLUDED.updated_at
-            """, (code, name, now_utc(), now_utc()))
+
+        try:
+            from configs.countries import COUNTRIES
+            for code, name in COUNTRIES:
+                cur.execute("""
+                    INSERT INTO countries (country_code, country_name, enabled, created_at, updated_at)
+                    VALUES (%s, %s, 1, %s, %s)
+                    ON CONFLICT (country_code) DO UPDATE SET
+                        country_name = EXCLUDED.country_name,
+                        updated_at = EXCLUDED.updated_at
+                """, (code, name, now_utc(), now_utc()))
+        except Exception:
+            pass
+
+
+def upsert_asset(country_code: str, asset_name: str, asset_type: str = "unknown", canonical_source_url=None) -> int:
+    with db_cursor() as (conn, cur):
+        cur.execute("""
+            INSERT INTO assets (country_code, asset_name, asset_type, canonical_source_url, discovered_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (country_code, asset_name) DO UPDATE SET
+                asset_type = COALESCE(EXCLUDED.asset_type, assets.asset_type),
+                canonical_source_url = COALESCE(EXCLUDED.canonical_source_url, assets.canonical_source_url),
+                updated_at = EXCLUDED.updated_at
+            RETURNING asset_id
+        """, (country_code, asset_name, asset_type, canonical_source_url, now_utc(), now_utc()))
+        return cur.fetchone()["asset_id"]
+
+
+def upsert_entity(country_code: str, entity_name: str, entity_type: str, official_domain=None, notes=None) -> int:
+    with db_cursor() as (conn, cur):
+        cur.execute("""
+            INSERT INTO entities (country_code, entity_name, entity_type, official_domain, notes, discovered_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (country_code, entity_name, entity_type) DO UPDATE SET
+                official_domain = COALESCE(EXCLUDED.official_domain, entities.official_domain),
+                notes = COALESCE(EXCLUDED.notes, entities.notes),
+                updated_at = EXCLUDED.updated_at
+            RETURNING entity_id
+        """, (country_code, entity_name, entity_type, official_domain, notes, now_utc(), now_utc()))
+        return cur.fetchone()["entity_id"]
+
+
+def upsert_source(country_code: str, source_url: str, source_type: str, asset_id=None, entity_id=None, priority: int = 2, active: int = 1) -> int:
+    with db_cursor() as (conn, cur):
+        cur.execute("""
+            INSERT INTO sources (country_code, source_url, source_type, asset_id, entity_id, priority, active, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (source_url) DO UPDATE SET
+                source_type = EXCLUDED.source_type,
+                asset_id = COALESCE(EXCLUDED.asset_id, sources.asset_id),
+                entity_id = COALESCE(EXCLUDED.entity_id, sources.entity_id),
+                priority = EXCLUDED.priority,
+                active = EXCLUDED.active,
+                updated_at = EXCLUDED.updated_at
+            RETURNING source_id
+        """, (country_code, source_url, source_type, asset_id, entity_id, priority, active, now_utc(), now_utc()))
+        return cur.fetchone()["source_id"]
+
+
+def touch_source_checked(source_url: str):
+    with db_cursor() as (conn, cur):
+        cur.execute("""
+            UPDATE sources
+            SET last_checked_at = %s, updated_at = %s
+            WHERE source_url = %s
+        """, (now_utc(), now_utc(), source_url))
+
 
 def create_default_job_if_missing():
     with db_cursor() as (conn, cur):
         cur.execute("SELECT COUNT(*) AS cnt FROM crawl_jobs")
-        row = cur.fetchone()
-        cnt = row["cnt"] if isinstance(row, dict) else row[0]
-        if cnt == 0:
+        if cur.fetchone()["cnt"] == 0:
             cur.execute("""
                 INSERT INTO crawl_jobs (
-                    job_name, countries_json, asset_types_json, entity_types_json,
-                    mode, enabled, run_interval_minutes, max_tasks_per_run,
-                    requests_per_minute, created_at, updated_at
+                    job_name, countries_json, asset_types_json, entity_types_json, mode,
+                    enabled, run_interval_minutes, max_tasks_per_run, requests_per_minute,
+                    created_at, updated_at
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 "main-registry",
@@ -193,50 +268,6 @@ def create_default_job_if_missing():
                 "broad", 1, 60, 10, 20, now_utc(), now_utc()
             ))
 
-def upsert_asset(country_code, asset_name, asset_type="unknown", canonical_source_url=None):
-    with db_cursor() as (conn, cur):
-        cur.execute("""
-            INSERT INTO assets (country_code, asset_name, asset_type, canonical_source_url, discovered_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (country_code, asset_name) DO UPDATE
-            SET asset_type = EXCLUDED.asset_type,
-                canonical_source_url = COALESCE(EXCLUDED.canonical_source_url, assets.canonical_source_url),
-                updated_at = EXCLUDED.updated_at
-            RETURNING asset_id
-        """, (country_code, asset_name, asset_type, canonical_source_url, now_utc(), now_utc()))
-        row=cur.fetchone()
-        return row["asset_id"] if isinstance(row, dict) else row[0]
-
-def upsert_entity(country_code, entity_name, entity_type, official_domain=None, notes=None):
-    with db_cursor() as (conn, cur):
-        cur.execute("""
-            INSERT INTO entities (country_code, entity_name, entity_type, official_domain, notes, discovered_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (country_code, entity_name, entity_type) DO UPDATE
-            SET official_domain = COALESCE(EXCLUDED.official_domain, entities.official_domain),
-                notes = COALESCE(EXCLUDED.notes, entities.notes),
-                updated_at = EXCLUDED.updated_at
-            RETURNING entity_id
-        """, (country_code, entity_name, entity_type, official_domain, notes, now_utc(), now_utc()))
-        row=cur.fetchone()
-        return row["entity_id"] if isinstance(row, dict) else row[0]
-
-def upsert_source(country_code, source_url, source_type, asset_id=None, entity_id=None, priority=2, active=1):
-    with db_cursor() as (conn, cur):
-        cur.execute("""
-            INSERT INTO sources (country_code, source_url, source_type, asset_id, entity_id, priority, active, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (source_url) DO UPDATE
-            SET source_type = EXCLUDED.source_type,
-                asset_id = COALESCE(EXCLUDED.asset_id, sources.asset_id),
-                entity_id = COALESCE(EXCLUDED.entity_id, sources.entity_id),
-                priority = EXCLUDED.priority,
-                active = EXCLUDED.active,
-                updated_at = EXCLUDED.updated_at
-            RETURNING source_id
-        """, (country_code, source_url, source_type, asset_id, entity_id, priority, active, now_utc(), now_utc()))
-        row=cur.fetchone()
-        return row["source_id"] if isinstance(row, dict) else row[0]
 
 def record_error(task_id=None, country_code=None, seed_name=None, url=None, stage=None, error_text=""):
     with db_cursor() as (conn, cur):
