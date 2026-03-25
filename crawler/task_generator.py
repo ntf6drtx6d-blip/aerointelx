@@ -1,3 +1,4 @@
+from core.db import get_conn, now
 from core.db import db_cursor
 from core.utils import now_utc, safe_json_loads
 
