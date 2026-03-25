@@ -1,13 +1,43 @@
 SEEDS = {
     "BR": [
-        {"name": "Infraero", "url": "https://www4.infraero.gov.br/", "type": "operator"},
-        {"name": "ANAC Brazil", "url": "https://www.gov.br/anac/", "type": "regulator"},
-        {"name": "Ports and Airports Ministry", "url": "https://www.gov.br/portos-e-aeroportos", "type": "ministry"},
+        {
+            "name": "ANAC Brazil",
+            "type": "authority",
+            "url": "https://www.gov.br/anac/pt-br",
+        },
+        {
+            "name": "Infraero",
+            "type": "operator",
+            "url": "https://www4.infraero.gov.br/",
+        },
+        {
+            "name": "Ministry of Ports and Airports Brazil",
+            "type": "ministry",
+            "url": "https://www.gov.br/portos-e-aeroportos/pt-br",
+        },
     ],
     "MX": [
-        {"name": "AFAC", "url": "https://www.gob.mx/afac", "type": "regulator"},
+        {
+            "name": "AFAC Mexico",
+            "type": "authority",
+            "url": "https://www.gob.mx/afac",
+        },
+        {
+            "name": "ASA Mexico",
+            "type": "operator",
+            "url": "https://www.asa.gob.mx/",
+        },
     ],
     "CO": [
-        {"name": "Aerocivil", "url": "https://www.aerocivil.gov.co/", "type": "regulator"},
+        {
+            "name": "Aerocivil Colombia",
+            "type": "authority",
+            "url": "https://www.aerocivil.gov.co/",
+        },
+        {
+            "name": "ANI Colombia",
+            "type": "infrastructure",
+            "url": "https://www.ani.gov.co/",
+        },
     ],
 }
