@@ -1,7 +1,14 @@
 services:
   - type: worker
-    name: aerointel-registry-worker
+    name: aerointel-worker
     env: python
     plan: starter
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python run_worker.py"
+
+  - type: web
+    name: aerointel-app
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "streamlit run app/app.py --server.port $PORT --server.address 0.0.0.0"
