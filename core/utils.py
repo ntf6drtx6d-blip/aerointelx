@@ -1,3 +1,4 @@
+print("UTILS_V2_LOADED", flush=True)
 import json
 from datetime import datetime, timezone
 
