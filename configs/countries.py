@@ -1,1 +1,6 @@
-COUNTRIES = ['Brazil', 'Mexico', 'Colombia']
+COUNTRIES = [
+    ("BR", "Brazil"),
+    ("MX", "Mexico"),
+    ("CO", "Colombia"),
+    ("AU", "Australia"),
+]

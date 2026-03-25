@@ -1,3 +1,4 @@
-streamlit
-pandas
-requests
+streamlit==1.55.0
+pandas==2.3.3
+requests==2.33.0
+beautifulsoup4==4.13.5
