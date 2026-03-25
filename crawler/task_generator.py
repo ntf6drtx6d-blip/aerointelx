@@ -1,3 +1,4 @@
+print("TASK_GENERATOR_V2_LOADED", flush=True)
 from core.db import get_conn
 from core.utils import now_utc, safe_json_loads
 
