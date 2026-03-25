@@ -35,9 +35,9 @@ def generate_tasks_if_needed():
         entity_types_json = row[3]
         max_tasks_per_run = row[4] or 10
 
-        countries = safe_json_loads(countries_json, [])
-        asset_types = safe_json_loads(asset_types_json, [])
-        entity_types = safe_json_loads(entity_types_json, [])
+        countries = safe_json_loads(countries_json) or []
+        asset_types = safe_json_loads(asset_types_json) or []
+        entity_types = safe_json_loads(entity_types_json) or []
 
         if not countries:
             continue
