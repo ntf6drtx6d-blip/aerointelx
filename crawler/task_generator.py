@@ -1,12 +1,12 @@
 from core.db import get_conn
-from core.db import db_cursor
 from core.utils import now_utc, safe_json_loads
+
 
 def generate_tasks_if_needed():
     conn = get_conn()
     cur = conn.cursor()
 
-    # ❗ перевірка — чи вже є незавершені задачі
+    # якщо вже є активні tasks — не створюємо нові
     cur.execute("""
     SELECT COUNT(*) FROM crawl_tasks
     WHERE status IN ('pending', 'running')
@@ -17,7 +17,7 @@ def generate_tasks_if_needed():
         conn.close()
         return 0
 
-    # тільки якщо все завершено → генеруємо нові
+    # беремо тільки enabled jobs
     cur.execute("""
     SELECT job_id, countries
     FROM crawl_jobs
@@ -29,10 +29,22 @@ def generate_tasks_if_needed():
 
     for job_id, countries in jobs:
         for country in countries.split(","):
+            country_code = country.strip()
+            if not country_code:
+                continue
+
             cur.execute("""
-            INSERT INTO crawl_tasks (job_id, country_code, status)
-            VALUES (?, ?, 'pending')
-            """, (job_id, country.strip()))
+            INSERT INTO crawl_tasks
+            (job_id, country_code, status, retries, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                job_id,
+                country_code,
+                "pending",
+                0,
+                now_utc(),
+                now_utc(),
+            ))
             created += 1
 
     conn.commit()
