@@ -1,7 +1,8 @@
-print("TASK_GENERATOR_V2_LOADED", flush=True)
+print("TASK_GENERATOR_PG_LOADED", flush=True)
 
 from core.db import get_conn
 from core.utils import now_utc, safe_json_loads
+
 
 def generate_tasks_if_needed():
     conn = get_conn()
@@ -49,37 +50,58 @@ def generate_tasks_if_needed():
                         for entity_type in entity_types:
                             if task_count >= max_tasks_per_run:
                                 break
+
                             cur.execute("""
                             INSERT INTO crawl_tasks (
                                 job_id, country_code, asset_type, entity_type,
                                 status, retries, created_at, updated_at
                             )
                             VALUES (%s, %s, %s, %s, 'pending', 0, %s, %s)
-                            """, (job_id, country_code, asset_type, entity_type, now_utc(), now_utc()))
+                            """, (
+                                job_id,
+                                country_code,
+                                asset_type,
+                                entity_type,
+                                now_utc(),
+                                now_utc(),
+                            ))
                             created += 1
                             task_count += 1
                     else:
                         if task_count >= max_tasks_per_run:
                             break
+
                         cur.execute("""
                         INSERT INTO crawl_tasks (
                             job_id, country_code, asset_type,
                             status, retries, created_at, updated_at
                         )
                         VALUES (%s, %s, %s, 'pending', 0, %s, %s)
-                        """, (job_id, country_code, asset_type, now_utc(), now_utc()))
+                        """, (
+                            job_id,
+                            country_code,
+                            asset_type,
+                            now_utc(),
+                            now_utc(),
+                        ))
                         created += 1
                         task_count += 1
             else:
                 if task_count >= max_tasks_per_run:
                     break
+
                 cur.execute("""
                 INSERT INTO crawl_tasks (
                     job_id, country_code,
                     status, retries, created_at, updated_at
                 )
                 VALUES (%s, %s, 'pending', 0, %s, %s)
-                """, (job_id, country_code, now_utc(), now_utc()))
+                """, (
+                    job_id,
+                    country_code,
+                    now_utc(),
+                    now_utc(),
+                ))
                 created += 1
                 task_count += 1
 
