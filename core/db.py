@@ -18,7 +18,6 @@ def _require_db_url():
 
 # =========================
 # RAW psycopg2 layer
-# for worker / write ops / custom SQL
 # =========================
 def get_conn():
     _require_db_url()
@@ -54,8 +53,7 @@ def fetchall(query: str, params=None, dict_cursor: bool = True):
 
 
 # =========================
-# SQLAlchemy engine layer
-# for Streamlit / pandas read_sql
+# SQLAlchemy layer
 # =========================
 _ENGINE = None
 
@@ -101,14 +99,20 @@ def init_db():
         CREATE TABLE IF NOT EXISTS assets (
             asset_id SERIAL PRIMARY KEY,
             country_code TEXT NOT NULL,
+            country_name TEXT,
             asset_name TEXT NOT NULL,
             asset_type TEXT NOT NULL DEFAULT 'unknown',
+            municipality TEXT,
             icao_code TEXT,
             iata_code TEXT,
+            scheduled_service TEXT,
+            home_link TEXT,
+            wikipedia_link TEXT,
+            canonical_source_url TEXT,
             city TEXT,
             region TEXT,
             status TEXT DEFAULT 'unknown',
-            canonical_source_url TEXT,
+            last_updated TEXT,
             discovered_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE(country_code, asset_name)
@@ -186,6 +190,11 @@ def init_db():
             task_id SERIAL PRIMARY KEY,
             job_id INTEGER NOT NULL,
             country_code TEXT NOT NULL,
+            task_kind TEXT,
+            target_url TEXT,
+            target_asset_id INTEGER,
+            target_entity_id INTEGER,
+            priority INTEGER DEFAULT 5,
             asset_type TEXT,
             entity_type TEXT,
             status TEXT NOT NULL DEFAULT 'pending',
@@ -258,21 +267,80 @@ def init_db():
 
 
 # =========================
-# Registry upserts
+# Upserts
 # =========================
-def upsert_asset(country_code: str, asset_name: str, asset_type: str = "unknown", canonical_source_url=None) -> int:
+def upsert_asset(
+    country_code,
+    country_name,
+    name,
+    asset_type,
+    municipality=None,
+    icao_code=None,
+    iata_code=None,
+    scheduled_service=None,
+    home_link=None,
+    wikipedia_link=None,
+    canonical_source_url=None,
+    city=None,
+    region=None,
+    status="unknown",
+):
     with db_cursor() as (conn, cur):
         cur.execute("""
             INSERT INTO assets (
-                country_code, asset_name, asset_type, canonical_source_url, discovered_at, updated_at
+                country_code,
+                country_name,
+                asset_name,
+                asset_type,
+                municipality,
+                icao_code,
+                iata_code,
+                scheduled_service,
+                home_link,
+                wikipedia_link,
+                canonical_source_url,
+                city,
+                region,
+                status,
+                last_updated,
+                discovered_at,
+                updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (country_code, asset_name) DO UPDATE SET
-                asset_type = COALESCE(EXCLUDED.asset_type, assets.asset_type),
+                country_name = COALESCE(EXCLUDED.country_name, assets.country_name),
+                municipality = COALESCE(EXCLUDED.municipality, assets.municipality),
+                icao_code = COALESCE(EXCLUDED.icao_code, assets.icao_code),
+                iata_code = COALESCE(EXCLUDED.iata_code, assets.iata_code),
+                scheduled_service = COALESCE(EXCLUDED.scheduled_service, assets.scheduled_service),
+                home_link = COALESCE(EXCLUDED.home_link, assets.home_link),
+                wikipedia_link = COALESCE(EXCLUDED.wikipedia_link, assets.wikipedia_link),
                 canonical_source_url = COALESCE(EXCLUDED.canonical_source_url, assets.canonical_source_url),
+                city = COALESCE(EXCLUDED.city, assets.city),
+                region = COALESCE(EXCLUDED.region, assets.region),
+                status = COALESCE(EXCLUDED.status, assets.status),
+                last_updated = EXCLUDED.last_updated,
                 updated_at = EXCLUDED.updated_at
             RETURNING asset_id
-        """, (country_code, asset_name, asset_type, canonical_source_url, now_utc(), now_utc()))
+        """, (
+            country_code,
+            country_name,
+            name,
+            asset_type,
+            municipality,
+            icao_code,
+            iata_code,
+            scheduled_service,
+            home_link,
+            wikipedia_link,
+            canonical_source_url,
+            city,
+            region,
+            status,
+            now_utc(),
+            now_utc(),
+            now_utc(),
+        ))
         return cur.fetchone()["asset_id"]
 
 
