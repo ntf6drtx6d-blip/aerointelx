@@ -1,23 +1,14 @@
-print("REGISTRY_BUILDER_V3_LOADED", flush=True)
+print("REGISTRY_BUILDER_V4_LOADED", flush=True)
 
 import csv
-import requests
 from io import StringIO
 
+import requests
+
 from core.db import upsert_asset, upsert_entity, upsert_source
-from core.utils import now_utc
-
-
-# =========================
-# CONFIG
-# =========================
 
 OURAIRPORTS_URL = "https://ourairports.com/data/airports.csv"
 
-
-# =========================
-# GLOBAL AIRPORT INGESTION
-# =========================
 
 def ingest_all_airports_global():
     print("🌍 Starting global airport ingestion...", flush=True)
@@ -39,11 +30,28 @@ def ingest_all_airports_global():
 
         asset_type = row.get("type") or "airport"
 
-        upsert_asset(
+        asset_id = upsert_asset(
             country_code=country_code,
-            asset_name=name,
+            country_name=country_code,  # later we can map code -> full country name
+            name=name,
             asset_type=asset_type,
+            municipality=row.get("municipality"),
+            icao_code=row.get("gps_code") or row.get("ident"),
+            iata_code=row.get("iata_code"),
+            scheduled_service=row.get("scheduled_service"),
+            home_link=row.get("home_link"),
+            wikipedia_link=row.get("wikipedia_link"),
             canonical_source_url=OURAIRPORTS_URL,
+            city=row.get("municipality"),
+            region=row.get("iso_region"),
+            status="active" if row.get("scheduled_service") == "yes" else "unknown",
+        )
+
+        upsert_source(
+            country_code=country_code,
+            source_url=OURAIRPORTS_URL,
+            source_type="ourairports_csv",
+            asset_id=asset_id,
         )
 
         created += 1
@@ -52,13 +60,8 @@ def ingest_all_airports_global():
             print(f"✈️ Inserted {created} airports...", flush=True)
 
     print(f"✅ DONE: {created} airports loaded", flush=True)
-
     return created
 
-
-# =========================
-# COUNTRY-LEVEL INGESTION (fallback)
-# =========================
 
 def ingest_airports_for_country(country_code: str):
     response = requests.get(OURAIRPORTS_URL, timeout=60)
@@ -81,9 +84,19 @@ def ingest_airports_for_country(country_code: str):
 
         asset_id = upsert_asset(
             country_code=country_code,
-            asset_name=name,
+            country_name=country_code,
+            name=name,
             asset_type=asset_type,
+            municipality=row.get("municipality"),
+            icao_code=row.get("gps_code") or row.get("ident"),
+            iata_code=row.get("iata_code"),
+            scheduled_service=row.get("scheduled_service"),
+            home_link=row.get("home_link"),
+            wikipedia_link=row.get("wikipedia_link"),
             canonical_source_url=OURAIRPORTS_URL,
+            city=row.get("municipality"),
+            region=row.get("iso_region"),
+            status="active" if row.get("scheduled_service") == "yes" else "unknown",
         )
 
         upsert_source(
@@ -98,12 +111,7 @@ def ingest_airports_for_country(country_code: str):
     return created
 
 
-# =========================
-# OPERATOR DISCOVERY (STUB)
-# =========================
-
 def discover_operators(country_code: str):
-    # ⚠️ Placeholder — next step буде реальний pipeline
     created = 0
 
     for i in range(3):
@@ -120,28 +128,13 @@ def discover_operators(country_code: str):
     return created
 
 
-# =========================
-# LINKING (STUB)
-# =========================
-
 def link_airports_to_operators(country_code: str):
-    # ⚠️ Placeholder
-    # Тут буде реальна логіка mapping
     return 1
 
 
-# =========================
-# MONITORING (STUB)
-# =========================
-
 def monitor_sources(country_code: str):
-    # Поки просто placeholder
     return 0
 
-
-# =========================
-# MAIN ENTRY
-# =========================
 
 def crawl_country(country_code: str, mode: str = "bootstrap_airports"):
     print(f"🌐 crawl_country | {country_code} | mode={mode}", flush=True)
@@ -153,44 +146,26 @@ def crawl_country(country_code: str, mode: str = "bootstrap_airports"):
         "sources": 0,
     }
 
-    # =========================
-    # BOOTSTRAP AIRPORTS
-    # =========================
     if mode == "bootstrap_airports":
         count = ingest_airports_for_country(country_code)
-
         summary["assets"] += count
         summary["sources"] += count
 
-    # =========================
-    # BOOTSTRAP OPERATORS
-    # =========================
     elif mode == "bootstrap_operators":
         count = discover_operators(country_code)
-
         summary["entities"] += count
 
-    # =========================
-    # LINK AIRPORT ↔ OPERATOR
-    # =========================
     elif mode == "link_airport_operator":
         count = link_airports_to_operators(country_code)
-
         summary["links"] += count
 
-    # =========================
-    # MONITOR
-    # =========================
     elif mode == "monitor_sources":
         monitor_sources(country_code)
 
-    # =========================
-    # GLOBAL INGEST (manual only)
-    # =========================
     elif mode == "bootstrap_airports_global":
         count = ingest_all_airports_global()
-
         summary["assets"] += count
+        summary["sources"] += count
 
     else:
         raise ValueError(f"Unknown mode: {mode}")
